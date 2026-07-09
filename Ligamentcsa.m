@@ -44,15 +44,13 @@ uicontrol('Style', 'pushbutton', 'String', 'Done', ...
     'Callback', 'uiresume(gcbf)');
 uiwait(fig);
 
-p1 = h1.Position; p2 = h2.Position;
-t1 = min(p1(1,1), p2(1,1));
-t2 = max(p1(1,1), p2(1,1));
+t1 = min(h1.Position(1,1), h2.Position(1,1));
+t2 = max(h1.Position(1,1), h2.Position(1,1));
 fprintf('Selected region: t1 = %.3f, t2 = %.3f\n', t1, t2);
 
 %% 4. Trim Mesh to Selected Region
 keepVertex = (t >= t1) & (t <= t2);
-insideCount = sum(keepVertex(F), 2);
-keepFace = insideCount >= 2;          % keep faces mostly inside the region
+keepFace = sum(keepVertex(F), 2) >= 2;   % keep faces mostly inside the region
 Fkeep = F(keepFace, :);
 
 % Renumber vertices so the trimmed mesh is self-contained (needed for the
@@ -75,14 +73,14 @@ title('Cyan = Retained Ligament Region');
 % Note: n and mu are still the ones from the full-mesh PCA in Section 2 —
 % deliberately not recomputed here, see the note above.
 
-%% 7. Cut Positions
+%% 6. Cut Positions
 perc = [20, 50, 80];
 proj = Vtrim * n';
 lengthAlongN = max(proj) - min(proj);
 minp = min(proj);
 p_coords = minp + (perc(:)/100) * lengthAlongN;
 
-%% 8. Cross-Section Calculation
+%% 7. Cross-Section Calculation
 num = numel(p_coords);
 areas = zeros(num,1);
 cutPoints = zeros(num,3);
@@ -94,18 +92,18 @@ for k = 1:num
     [areas(k), loopsByCut{k}, ~] = crossSectionAreaFromMesh(Vtrim, Ftrim, Ppos, n);
 end
 
-%% 9. Display Results
+%% 8. Display Results
 T = table(perc(:), p_coords, areas, 'VariableNames', {'Percent', 'ProjCoord', 'Area'});
 disp(T);
 
-%% 10. Plot Setup
+%% 9. Plot Setup
 figure;
 trisurf(Ftrim, Vtrim(:,1), Vtrim(:,2), Vtrim(:,3), ...
     'FaceAlpha', 0.6, 'EdgeColor', 'none', 'DisplayName', 'Ligament');
 hold on; axis equal;
 colors = lines(num);
 
-%% 11. In-Plane Directions
+%% 10. In-Plane Directions
 tmp = [0 0 1];
 if abs(n(3)) >= 0.9
     tmp = [0 1 0];
@@ -115,11 +113,11 @@ v = cross(n,u);   v = v / norm(v);
 
 scale = 1.2 * max(range(Vtrim));
 
-%% 12. Axis Visualization
+%% 11. Axis Visualization
 nLine = [mu - 0.55*lengthAlongN*n; mu + 0.55*lengthAlongN*n];
 plot3(nLine(:,1), nLine(:,2), nLine(:,3), 'k--', 'LineWidth', 2, 'DisplayName', 'n axis');
 
-%% 13. Draw Cuts
+%% 12. Draw Cuts
 for k = 1:num
     Ppos = cutPoints(k,:);
     loops3D = loopsByCut{k};
@@ -127,8 +125,7 @@ for k = 1:num
     for L = 1:numel(loops3D)
         pts = loops3D{L};
         plotPts = [pts; pts(1,:)];   % repeat first point so the loop visually closes
-        visFlag = 'off';
-        if L == 1, visFlag = 'on'; end
+        visFlag = 'off'; if L == 1, visFlag = 'on'; end
         plot3(plotPts(:,1), plotPts(:,2), plotPts(:,3), '-', 'Color', colors(k,:), ...
             'LineWidth', 1.5, 'DisplayName', sprintf('%d%% cut', perc(k)), 'HandleVisibility', visFlag);
     end
@@ -139,13 +136,13 @@ for k = 1:num
         'FaceAlpha', 0.15, 'EdgeColor', 'none', 'HandleVisibility', 'off');
 end
 
-%% 14. Final Format
+%% 13. Final Format
 title('Ligament Cross Sections from PCA Axis');
 xlabel('X'); ylabel('Y'); zlabel('Z');
 legend('show', 'Location', 'best');
 grid on; view(3); camlight; lighting gouraud;
 
-%% 15. Flat 2D Projections of Each Cut
+%% 14. Flat 2D Projections of Each Cut
 figure('Name', 'Flat 2D Cross-Section Projections');
 
 for k = 1:num
