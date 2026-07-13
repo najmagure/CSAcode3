@@ -36,7 +36,6 @@ uiwait(fig);   % blocks until Done is clicked, so dragged positions are read aft
 
 t1 = min(h1.Position(1,1), h2.Position(1,1));
 t2 = max(h1.Position(1,1), h2.Position(1,1));
-fprintf('Selected region: t1 = %.3f, t2 = %.3f\n', t1, t2);
 
 %% 4. Trim Mesh to Selected Region
 keepVertex = (t >= t1) & (t <= t2);
@@ -80,7 +79,7 @@ for k = 1:num
 end
 
 %% 8. Display Results
-T = table(perc(:), p_coords, areas, 'VariableNames', {'Percent', 'ProjCoord', 'Area'});
+T = table(perc(:), areas, 'VariableNames', {'Percent', 'Area'});
 disp(T);
 
 %% 9. Plot Setup
