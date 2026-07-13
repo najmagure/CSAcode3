@@ -1,8 +1,4 @@
-
-%% Stress relaxation viscoelastic property extraction for ligament/tendon testing
-% Requires the Optimization Toolbox (lsqcurvefit).
-% Fill in the USER INPUTS block below, then run this file.
-
+%% Stress relaxation viscoelastic property extraction
 %% ============================== USER INPUTS ===============================
 
 DATA_FILE = "/Users/najmagure/Downloads/1st Run/DAQ- Axial Force, … - (Timed).txt";
@@ -10,11 +6,8 @@ DATA_FILE = "/Users/najmagure/Downloads/1st Run/DAQ- Axial Force, … - (Timed).
 CSA_MM2 = 5.0;          % cross-sectional area of the tissue, mm^2 (from your other script)
 L0_MM = 30.0;           % gauge / ligament length, mm (from your other script)
 
-N_PRONY_TERMS = 2;      % number of exponential decay terms in the fit (1-3 typical)
-
-AUTO_DETECT = true;         % try to find the relaxation window automatically first
-CONFIRM_AUTO_DETECT = true; % show the detected window and ask for confirmation
-                            % before fitting (type 'manual' to override with sliders)
+AUTO_DETECT = true;         % try to find the relaxation window automatically
+CONFIRM_AUTO_DETECT = true; % show the detected window before fitting (press Enter to continue)
 
 OUTPUT_DIR = fullfile(fileparts(mfilename('fullpath')), "output");
 
@@ -41,9 +34,7 @@ if ~isempty(window) && CONFIRM_AUTO_DETECT
     title(sprintf('Auto-detected window: %.2fs - %.2fs (duration %.1fs)', ...
         window(1), window(2), window(2) - window(1)));
     drawnow;
-
-    choice = input(sprintf(['Auto-detected relaxation window shown above.\n' ...
-        'Press Enter to accept it, or type ''manual'' to adjust with sliders: ']), 's');
+    choice = input('Press Enter to accept, or type ''manual'' to adjust: ', 's');
     close(fig);
     if strcmpi(strtrim(choice), 'manual')
         window = [];
@@ -64,37 +55,27 @@ tRel = seg.Time_s - seg.Time_s(1);
 stress = seg.Stress_MPa;
 strainLevel = mean(seg.Strain);
 
-[popt, r2, fitted] = fitPronySeries(tRel, stress, N_PRONY_TERMS);
+[popt, r2, fitted] = fitQLV(tRel, stress);
 fprintf('Fit R^2 = %.5f\n', r2);
-reportProperties(popt, strainLevel, N_PRONY_TERMS);
 
-fig = figure('Name', 'Stress relaxation fit', 'Position', [100 100 900 700]);
-subplot(3,1,[1 2]);
+resultsT = qlvProperties(popt, strainLevel);
+disp(resultsT);
+
+fig = figure('Name', 'Stress relaxation fit', 'Position', [100 100 900 600]);
 plot(tRel, stress, '.', 'MarkerSize', 2, 'Color', [0.27 0.51 0.71]);
 hold on;
 plot(tRel, fitted, '-', 'LineWidth', 2, 'Color', [0.86 0.08 0.24]);
-ylabel('Stress (MPa)');
-legend('data', sprintf('Prony fit (n=%d), R^2=%.4f', N_PRONY_TERMS, r2), 'Location', 'best');
+xlabel('Time since hold start (s)'); ylabel('Stress (MPa)');
+legend('data', sprintf('QLV fit, R^2=%.4f', r2), 'Location', 'best');
 title('Stress relaxation fit');
-
-subplot(3,1,3);
-plot(tRel, stress - fitted, 'Color', [0.5 0.5 0.5], 'LineWidth', 0.7);
-yline(0, 'k-', 'LineWidth', 0.5);
-xlabel('Time since hold start (s)'); ylabel('Residual (MPa)');
 
 figPath = fullfile(OUTPUT_DIR, "relaxation_fit.png");
 saveas(fig, figPath);
 fprintf('Saved fit plot to %s\n', figPath);
 
-paramNames = {'sigma_inf'};
-for i = 1:N_PRONY_TERMS
-    paramNames{end+1} = sprintf('A%d_MPa', i); %#ok<SAGROW>
-    paramNames{end+1} = sprintf('tau%d_s', i); %#ok<SAGROW>
-end
-resultsTable = table(paramNames(:), popt(:), 'VariableNames', {'parameter', 'value'});
-resultsPath = fullfile(OUTPUT_DIR, "fit_parameters.csv");
-writetable(resultsTable, resultsPath);
-fprintf('Saved fit parameters to %s\n', resultsPath);
+resultsPath = fullfile(OUTPUT_DIR, "viscoelastic_properties.csv");
+writetable(resultsT, resultsPath);
+fprintf('Saved viscoelastic properties to %s\n', resultsPath);
 
 seg.Time_rel_s = tRel;
 segPath = fullfile(OUTPUT_DIR, "relaxation_segment.csv");
@@ -252,128 +233,70 @@ function window = autoDetectRelaxation(T, minHoldS, minDispFraction, settleTrimS
 end
 
 function window = manualSelectRelaxation(T)
+% Draggable drawline ROIs (Image Processing Toolbox), same pattern as
+% CalculatingCSA.m's region selector.
     t = T.Time_s;
     f = T.Force_N;
 
-    fig = figure('Name', 'Select relaxation window', 'Position', [100 100 950 600]);
-    ax = axes('Parent', fig, 'Position', [0.1 0.35 0.85 0.55]);
-    plot(ax, t, f, 'Color', [0.27 0.51 0.71], 'LineWidth', 0.7);
-    xlabel(ax, 'Time (s)'); ylabel(ax, 'Force (N)');
-    title(ax, 'Drag Start/End sliders to bracket the stress-relaxation hold, then click Done');
-    yl = ylim(ax);
+    fig = figure('Name', 'Select relaxation window');
+    plot(t, f, 'Color', [0.27 0.51 0.71], 'LineWidth', 0.7);
+    hold on;
+    xlabel('Time (s)'); ylabel('Force (N)');
+    title({'Drag the red lines to bracket the stress-relaxation hold'; 'Click "Done" when finished'});
 
-    hold(ax, 'on');
-    hPatch = patch(ax, [t(1) t(end) t(end) t(1)], [yl(1) yl(1) yl(2) yl(2)], ...
-        [1 0.65 0], 'FaceAlpha', 0.25, 'EdgeColor', 'none');
+    tmin = min(t); tmax = max(t);
+    t1 = tmin + 0.25 * (tmax - tmin);
+    t2 = tmin + 0.75 * (tmax - tmin);
 
-    data = struct('tStart', t(1), 'tEnd', t(end), 'done', false);
-    guidata(fig, data);
+    h1 = drawline('Position', [t1 min(ylim); t1 max(ylim)], 'Color', 'r', 'LineWidth', 2);
+    h2 = drawline('Position', [t2 min(ylim); t2 max(ylim)], 'Color', 'r', 'LineWidth', 2);
 
-    uicontrol('Parent', fig, 'Style', 'text', 'String', 'Start (s)', ...
-        'Units', 'normalized', 'Position', [0.05 0.20 0.1 0.04]);
-    sStart = uicontrol('Parent', fig, 'Style', 'slider', 'Min', t(1), 'Max', t(end), ...
-        'Value', t(1), 'Units', 'normalized', 'Position', [0.16 0.20 0.7 0.04]);
-
-    uicontrol('Parent', fig, 'Style', 'text', 'String', 'End (s)', ...
-        'Units', 'normalized', 'Position', [0.05 0.13 0.1 0.04]);
-    sEnd = uicontrol('Parent', fig, 'Style', 'slider', 'Min', t(1), 'Max', t(end), ...
-        'Value', t(end), 'Units', 'normalized', 'Position', [0.16 0.13 0.7 0.04]);
-
-    uicontrol('Parent', fig, 'Style', 'pushbutton', 'String', 'Done', ...
-        'Units', 'normalized', 'Position', [0.80 0.03 0.12 0.06], ...
-        'Callback', @onDone);
-
-    sStart.Callback = @(src, evt) onSliderChange();
-    sEnd.Callback = @(src, evt) onSliderChange();
-
-    function onSliderChange()
-        lo = min(sStart.Value, sEnd.Value);
-        hi = max(sStart.Value, sEnd.Value);
-        set(hPatch, 'XData', [lo hi hi lo]);
-        drawnow;
-    end
-
-    function onDone(~, ~)
-        d = guidata(fig);
-        d.tStart = min(sStart.Value, sEnd.Value);
-        d.tEnd = max(sStart.Value, sEnd.Value);
-        d.done = true;
-        guidata(fig, d);
-        uiresume(fig);
-    end
-
+    uicontrol('Style', 'pushbutton', 'String', 'Done', ...
+        'Units', 'normalized', 'Position', [0.45 0.01 0.1 0.06], ...
+        'Callback', 'uiresume(gcbf)');
     uiwait(fig);
-    d = guidata(fig);
+
+    window = sort([h1.Position(1,1), h2.Position(1,1)]);
     close(fig);
-    if ~d.done
-        error('Window closed without clicking Done.');
-    end
-    window = [d.tStart, d.tEnd];
 end
 
-function s = pronyModel(params, t, nTerms)
-    sigmaInf = params(1);
-    s = sigmaInf * ones(size(t));
-    for i = 1:nTerms
-        A = params(2*i);
-        tau = params(2*i+1);
-        s = s + A * exp(-t / tau);
-    end
+function s = qlvModel(p, t)
+% Fung's QLV reduced relaxation function: sigma(t) = sigma0 * G(t).
+    sigma0 = p(1); c = p(2); tau1 = p(3); tau2 = p(3) + p(4);
+    tSafe = max(t, 1e-6);  % E1(0) diverges; the true limit G(0)=1 is reached as t->0+
+    G = (1 + c * (expint(tSafe/tau2) - expint(tSafe/tau1))) / (1 + c*log(tau2/tau1));
+    s = sigma0 * G;
 end
 
-function [popt, r2, fitted] = fitPronySeries(tRel, stress, nTerms)
-% sigma(t) = sigma_inf + sum(A_i * exp(-t/tau_i)); bounds keep params >= 0.
-    sigma0 = max(stress(1), 1e-6);
-    tailN = max(5, floor(numel(stress) / 50));
-    sigmaInf0 = max(mean(stress(end-tailN+1:end)), 1e-6);
-    amp0 = max(sigma0 - sigmaInf0, 1e-6);
+function [popt, r2, fitted] = fitQLV(tRel, stress)
+    sigma0_0 = max(stress(1), 1e-6);
     duration = tRel(end);
+    tau1_0 = max(duration/1000, 1e-3);
+    tau2_0 = duration * 5;
 
-    tauGuesses = logspace(log10(max(duration/200, 1e-3)), log10(duration/2), nTerms);
+    x0 = [sigma0_0; 1; tau1_0; tau2_0 - tau1_0];  % [sigma0, c, tau1, tau2-tau1]
+    lb = [0; 1e-4; 1e-3; 1e-3];
+    ub = [sigma0_0 * 2; 100; duration; duration * 1000];
 
-    x0 = zeros(1 + 2*nTerms, 1);
-    x0(1) = sigmaInf0;
-    lb = zeros(1 + 2*nTerms, 1);
-    ub = inf(1 + 2*nTerms, 1);
-    ub(1) = sigma0;
-    for i = 1:nTerms
-        x0(2*i) = amp0 / nTerms;
-        x0(2*i+1) = tauGuesses(i);
-        lb(2*i+1) = 1e-3;
-        ub(2*i) = sigma0 * 2;
-        ub(2*i+1) = duration * 50;
-    end
-
-    model = @(x, t) pronyModel(x, t, nTerms);
     opts = optimoptions('lsqcurvefit', 'Display', 'off', ...
         'MaxFunctionEvaluations', 2e4, 'MaxIterations', 2e4);
-    popt = lsqcurvefit(model, x0, tRel, stress, lb, ub, opts);
+    popt = lsqcurvefit(@qlvModel, x0, tRel, stress, lb, ub, opts);
 
-    fitted = model(popt, tRel);
+    fitted = qlvModel(popt, tRel);
     ssRes = sum((stress - fitted).^2);
     ssTot = sum((stress - mean(stress)).^2);
     r2 = 1 - ssRes / ssTot;
 end
 
-function reportProperties(popt, strainLevel, nTerms)
-    sigmaInf = popt(1);
-    sigma0 = sigmaInf + sum(popt(2:2:2*nTerms));
-    e0 = sigma0 / strainLevel;
-    eInf = sigmaInf / strainLevel;
-    if sigma0 ~= 0
-        pctRelax = (sigma0 - sigmaInf) / sigma0 * 100;
-    else
-        pctRelax = NaN;
-    end
+function resultsT = qlvProperties(popt, strainLevel)
+    c = popt(2); tau1 = popt(3); tau2 = popt(3) + popt(4);
+    e0 = popt(1) / strainLevel;
+    eInf = e0 / (1 + c * log(tau2 / tau1));
+    pctRelax = (1 - eInf / e0) * 100;
 
-    fprintf('\n--- Fitted viscoelastic properties ---\n');
-    fprintf('Equilibrium stress   sigma_inf = %.4f MPa\n', sigmaInf);
-    fprintf('Peak (t=0) stress    sigma_0   = %.4f MPa\n', sigma0);
-    fprintf('Instantaneous modulus E0       = %.2f MPa\n', e0);
-    fprintf('Equilibrium modulus   E_inf    = %.2f MPa\n', eInf);
-    fprintf('Percent relaxation             = %.1f %%\n', pctRelax);
-    for i = 1:nTerms
-        A = popt(2*i); tau = popt(2*i+1);
-        fprintf('Term %d: A%d = %.4f MPa   tau%d = %.2f s\n', i, i, A, i, tau);
-    end
+    Property = {'Instantaneous modulus (E0)'; 'Equilibrium modulus (E_inf)'; ...
+        'Percent relaxation'; 'Damping coefficient (c)'};
+    Value = round([e0; eInf; pctRelax; c], 4);
+    Units = {'MPa'; 'MPa'; '%'; '-'};
+    resultsT = table(Property, Value, Units);
 end
