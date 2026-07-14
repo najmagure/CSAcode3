@@ -1,7 +1,12 @@
 %% Stress relaxation viscoelastic property extraction
 %% ============================== USER INPUTS ===============================
 
-DATA_FILE = "/Users/najmagure/Downloads/1st Run/DAQ- Axial Force, … - (Timed).txt";
+[daqName, daqPath] = uigetfile({'*.txt;*.xlsx;*.xls', 'Acumen DAQ files (*.txt, *.xlsx, *.xls)'; '*.*', 'All files'}, ...
+    'Select Acumen DAQ data file', fileparts(mfilename('fullpath')));
+if isequal(daqName, 0)
+    error('No DAQ file selected.');
+end
+DATA_FILE = fullfile(daqPath, daqName);
 
 CSA_MM2 = 5.0;          % cross-sectional area of the tissue, mm^2 (from your other script)
 L0_MM = 30.0;           % gauge / ligament length, mm (from your other script)
@@ -9,7 +14,7 @@ L0_MM = 30.0;           % gauge / ligament length, mm (from your other script)
 AUTO_DETECT = true;         % try to find the relaxation window automatically
 CONFIRM_AUTO_DETECT = true; % show the detected window before fitting (press Enter to continue)
 
-OUTPUT_DIR = fullfile(fileparts(mfilename('fullpath')), "output");
+OUTPUT_DIR = fullfile(fileparts(mfilename('fullpath')), "fitcurve_output");
 
 if ~exist(OUTPUT_DIR, 'dir')
     mkdir(OUTPUT_DIR);
