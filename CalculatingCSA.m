@@ -60,7 +60,7 @@ title('Cyan = Retained Ligament Region');
 %% === From here: cross-section analysis on the TRIMMED ligament, using the full-mesh axis (n, mu) ===
 
 %% 6. Cut Positions
-perc = [20, 50, 80];
+perc = 50;
 proj = Vtrim * n';
 lengthAlongN = max(proj) - min(proj);
 minp = min(proj);
